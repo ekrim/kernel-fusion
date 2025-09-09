@@ -1,5 +1,7 @@
 import torch
+import torch._inductor.config as iCfg
 import torch.nn as nn
+from torch.cuda import nvtx
 import torch.nn.functional as F
 import argparse
 
@@ -89,12 +91,22 @@ class LlamaDecoderLayer(nn.Module):
 def time_fn(fn, warmup=30, iters=100):
     for _ in range(warmup):
         _ = fn()
-    torch.cuda.synchronize()
-    
-    with torch.profiler.record_function("model_execution"):
-        for _ in range(iters):
-            out = fn()
-    torch.cuda.synchronize()
+
+    s = torch.cuda.current_stream()
+    s.synchronize()
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
+
+    # nvtx.range_push("EGK.ITERATIONS")
+    for _ in range(iters):
+        start.record(s)
+        nvtx.mark(f"LLAMA.START")
+        out = fn() # actual function call
+        end.record(s)
+        s.synchronize()
+        ms = start.elapsed_time(end)
+        nvtx.mark(f"LLAMA.STOP gpu_ms={ms:.3f}")
+    # nvtx.range_pop()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -103,20 +115,15 @@ if __name__ == '__main__':
     
     # Test tensor for LlamaDecoderLayer.forward()
     batch_size = 2
-    seq_len = 128
+    seq_len = 2048
     hidden_size = 4096
-    hidden_states = torch.randn(batch_size, seq_len, hidden_size,
-        dtype=torch.float16, device="cuda")
+    hidden_states = torch.randn(batch_size, seq_len, hidden_size, dtype=torch.float16, device="cuda")
 
     transformer = LlamaDecoderLayer(hidden_size=hidden_size).cuda()
 
     if args.compiled:
-        # Completely disable CUDA graphs
-        import os
-        os.environ['TORCH_COMPILE_DEBUG'] = '1'
-        os.environ['PYTORCH_DISABLE_CUDA_GRAPHS'] = '1'
-        transformer = torch.compile(transformer, fullgraph=False, dynamic=False, mode="max-autotune")
-        #torch._inductor.config.triton.cudagraphs = False
+        iCfg.triton.cudagraphs = False  # disable CUDA graphs for Inductor/Triton
+        transformer = torch.compile(transformer, options={"triton.cudagraphs": False, "max-autotune": True})
 
     transformer.eval()
     with torch.inference_mode():
