@@ -1,6 +1,6 @@
 # Profiling Transformers with Nvidia Nsight
 
-`minimal_llama.py` is a simplified adaptation of a Llama 2/3 type transformer layers (up/down proj MLP + SwiGLU, RMSNorm, MHA, and similar dimensions). It's missing RoPE, GQA, and more optimized attention. This is a simple testbench for Nsight Systems and Nsight Compute to look into kernel performance.
+`minimal_llama.py` is a simplified adaptation of a Llama 2/3 type transformer layers using [HuggingFace transformers repo](https://github.com/huggingface/transformers) reference (up/down proj MLP + SwiGLU, RMSNorm, MHA, and similar dimensions). It's missing RoPE, GQA, and more optimized attention. This is a simple testbench for Nsight Systems and Nsight Compute to look into kernel performance.
 
 ## Comparison
 
